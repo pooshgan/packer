@@ -1,0 +1,68 @@
+name: Pack ELF
+
+on:
+  workflow_dispatch:
+    inputs:
+      binary_url:
+        description: "لینک فایل باینری (ممکنه فشرده باشه)"
+        required: true
+      binary_name:
+        description: "اسم فایل باینری داخل آرشیو (یا همون اسم باینری)"
+        required: true
+      output_name:
+        description: "نام فایل خروجی پک شده"
+        required: true
+
+jobs:
+  pack:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget tar unzip xz-utils bzip2
+
+      - name: Download packelf.sh
+        run: |
+          wget -O packelf.sh "https://raw.githubusercontent.com/oufm/packelf/refs/heads/master/packelf.sh"
+          chmod +x packelf.sh
+
+      - name: Download binary (or archive)
+        run: |
+          wget -O input_file "${{ github.event.inputs.binary_url }}"
+
+      - name: Extract if compressed
+        run: |
+          mkdir extracted
+          file_type=$(file -b input_file)
+          if echo "$file_type" | grep -qi "gzip compressed"; then
+            tar -xzf input_file -C extracted || true
+          elif echo "$file_type" | grep -qi "bzip2 compressed"; then
+            tar -xjf input_file -C extracted || true
+          elif echo "$file_type" | grep -qi "xz compressed"; then
+            tar -xJf input_file -C extracted || true
+          elif echo "$file_type" | grep -qi "Zip archive"; then
+            unzip -d extracted input_file || true
+          else
+            # اگه آرشیو نبود، همون فایل رو کپی میکنیم
+            cp input_file "extracted/${{ github.event.inputs.binary_name }}"
+          fi
+
+      - name: Verify extracted binary
+        run: |
+          ls -lah extracted
+          if [ ! -f "extracted/${{ github.event.inputs.binary_name }}" ]; then
+            echo "❌ Binary ${{ github.event.inputs.binary_name }} not found after extraction"
+            exit 1
+          fi
+          chmod +x "extracted/${{ github.event.inputs.binary_name }}"
+
+      - name: Pack ELF
+        run: |
+          ./packelf.sh "extracted/${{ github.event.inputs.binary_name }}" "${{ github.event.inputs.output_name }}"
+
+      - name: Upload packed artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: packed-binary
+          path: ${{ github.event.inputs.output_name }}
