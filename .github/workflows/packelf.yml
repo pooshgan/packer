@@ -37,7 +37,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y wget tar unzip xz-utils bzip2
+          sudo apt-get install -y wget tar unzip xz-utils bzip2 gh
 
       - name: Download binary (or archive)
         run: |
@@ -87,7 +87,16 @@ jobs:
         run: |
           tar -czf "${{ github.event.inputs.output_name }}.tar.gz" "${{ github.event.inputs.output_name }}"
 
-      - name: Create GitHub Release and Upload
+      - name: Delete old release assets
+        if: ${{ github.event.inputs.mode == 'pack' }}
+        run: |
+          gh release view packed-latest --json assets -q '.assets[].name' | while read asset; do
+            gh release delete-asset packed-latest "$asset" -y || true
+          done
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create or Update GitHub Release and Upload
         if: ${{ github.event.inputs.mode == 'pack' }}
         uses: softprops/action-gh-release@v2
         with:
