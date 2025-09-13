@@ -10,7 +10,7 @@ on:
         description: "Name of the binary file inside archive (or standalone binary name)"
         required: true
       output_name:
-        description: "Name of the packed output file"
+        description: "Name of the packed output file (without extension)"
         required: true
 
 permissions:
@@ -65,12 +65,16 @@ jobs:
         run: |
           ./packelf.sh "extracted/${{ github.event.inputs.binary_name }}" "${{ github.event.inputs.output_name }}"
 
+      - name: Archive packed binary
+        run: |
+          tar -czf "${{ github.event.inputs.output_name }}.tar.gz" "${{ github.event.inputs.output_name }}"
+
       - name: Create GitHub Release and Upload
         uses: softprops/action-gh-release@v2
         with:
           tag_name: packed-latest
           name: "Packed Binary Release"
           body: "Packed binary generated from ${{ github.event.inputs.binary_url }}"
-          files: ${{ github.event.inputs.output_name }}
+          files: ${{ github.event.inputs.output_name }}.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
