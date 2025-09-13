@@ -3,15 +3,23 @@ name: Pack ELF
 on:
   workflow_dispatch:
     inputs:
+      mode:
+        description: "Select mode of operation"
+        required: true
+        default: "pack"
+        type: choice
+        options:
+          - explore
+          - pack
       binary_url:
         description: "Direct link to the binary file (may be compressed)"
         required: true
       binary_name:
-        description: "Name of the binary file inside archive (or standalone binary name)"
-        required: true
+        description: "Name of the binary file inside archive (used only in 'pack' mode)"
+        required: false
       output_name:
-        description: "Name of the packed output file (without extension)"
-        required: true
+        description: "Name of the packed output file (without extension, used only in 'pack' mode)"
+        required: false
 
 permissions:
   contents: write
@@ -35,7 +43,7 @@ jobs:
         run: |
           wget -O input_file "${{ github.event.inputs.binary_url }}"
 
-      - name: Extract if compressed
+      - name: Extract files
         run: |
           mkdir extracted
           file_type=$(file -b input_file)
@@ -48,28 +56,39 @@ jobs:
           elif echo "$file_type" | grep -qi "Zip archive"; then
             unzip -d extracted input_file || true
           else
-            # If not compressed, copy it directly
-            cp input_file "extracted/${{ github.event.inputs.binary_name }}"
+            cp input_file extracted/
           fi
 
-      - name: Verify extracted binary
+      - name: List extracted binaries
+        if: ${{ github.event.inputs.mode == 'explore' }}
         run: |
-          ls -lah extracted
-          if [ ! -f "extracted/${{ github.event.inputs.binary_name }}" ]; then
+          echo "🔎 Searching for executable files..."
+          find extracted -type f -executable || true
+
+      - name: Verify extracted binary
+        if: ${{ github.event.inputs.mode == 'pack' }}
+        run: |
+          binary_path=$(find extracted -type f -name "${{ github.event.inputs.binary_name }}" | head -n 1)
+          if [ -z "$binary_path" ]; then
             echo "❌ Binary ${{ github.event.inputs.binary_name }} not found after extraction"
             exit 1
           fi
-          chmod +x "extracted/${{ github.event.inputs.binary_name }}"
+          echo "✅ Using binary: $binary_path"
+          chmod +x "$binary_path"
+          echo "BINARY_PATH=$binary_path" >> $GITHUB_ENV
 
       - name: Pack ELF
+        if: ${{ github.event.inputs.mode == 'pack' }}
         run: |
-          ./packelf.sh "extracted/${{ github.event.inputs.binary_name }}" "${{ github.event.inputs.output_name }}"
+          ./packelf.sh "$BINARY_PATH" "${{ github.event.inputs.output_name }}"
 
       - name: Archive packed binary
+        if: ${{ github.event.inputs.mode == 'pack' }}
         run: |
           tar -czf "${{ github.event.inputs.output_name }}.tar.gz" "${{ github.event.inputs.output_name }}"
 
       - name: Create GitHub Release and Upload
+        if: ${{ github.event.inputs.mode == 'pack' }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: packed-latest
