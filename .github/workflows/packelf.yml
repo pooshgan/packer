@@ -12,10 +12,10 @@ on:
           - explore
           - pack
       binary_url:
-        description: "Direct link to the binary file (may be compressed)"
+        description: "Direct link to the binary file (may be compressed or plain ELF)"
         required: true
       binary_name:
-        description: "Name of the binary file inside archive (used only in 'pack' mode)"
+        description: "Name of the binary file inside archive (used only in 'pack' mode, ignored if URL is plain ELF)"
         required: false
       output_name:
         description: "Name of the packed output file (without extension, used only in 'pack' mode)"
@@ -37,16 +37,17 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y wget tar unzip xz-utils bzip2 gh
+          sudo apt-get install -y wget tar unzip xz-utils bzip2 gh file
 
       - name: Download binary (or archive)
         run: |
           wget -O input_file "${{ github.event.inputs.binary_url }}"
 
-      - name: Extract files
+      - name: Extract or copy file
         run: |
           mkdir extracted
-          file_type=$(file -b input_file)
+          file_type=$(file -b input_file || true)
+
           if echo "$file_type" | grep -qi "gzip compressed"; then
             tar -xzf input_file -C extracted || true
           elif echo "$file_type" | grep -qi "bzip2 compressed"; then
@@ -56,7 +57,8 @@ jobs:
           elif echo "$file_type" | grep -qi "Zip archive"; then
             unzip -d extracted input_file || true
           else
-            cp input_file extracted/
+            echo "➡️ Detected plain binary file, copying to extracted/"
+            cp input_file "extracted/"
           fi
 
       - name: List extracted binaries
@@ -68,11 +70,18 @@ jobs:
       - name: Verify extracted binary
         if: ${{ github.event.inputs.mode == 'pack' }}
         run: |
-          binary_path=$(find extracted -type f -name "${{ github.event.inputs.binary_name }}" | head -n 1)
+          if [ -n "${{ github.event.inputs.binary_name }}" ]; then
+            binary_path=$(find extracted -type f -name "${{ github.event.inputs.binary_name }}" | head -n 1)
+          else
+            # If binary_name not provided, assume the only file in extracted is the binary
+            binary_path=$(find extracted -type f -executable | head -n 1)
+          fi
+
           if [ -z "$binary_path" ]; then
-            echo "❌ Binary ${{ github.event.inputs.binary_name }} not found after extraction"
+            echo "❌ Binary not found after extraction"
             exit 1
           fi
+
           echo "✅ Using binary: $binary_path"
           chmod +x "$binary_path"
           echo "BINARY_PATH=$binary_path" >> $GITHUB_ENV
